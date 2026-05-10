@@ -3,10 +3,7 @@ langchain
 langchain-groq
 langchain-community
 langchain-classic
-
-chromadb==0.5.5
-protobuf==4.25.3
-
+chromadb
 python-dotenv
 sentence-transformers
 ddgs
