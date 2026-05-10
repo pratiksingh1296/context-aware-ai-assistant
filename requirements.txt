@@ -7,4 +7,3 @@ chromadb
 python-dotenv
 sentence-transformers
 duckduckgo-search==6.3.7
-ddg
