@@ -3,7 +3,7 @@ langchain
 langchain-groq
 langchain-community
 langchain-classic
-chromadb
+chromadb==0.5.23
 python-dotenv
 sentence-transformers
 ddgs
