@@ -6,5 +6,5 @@ langchain-classic
 chromadb
 python-dotenv
 sentence-transformers
-duckduckgo-search
+duckduckgo-search==6.3.7
 ddg
