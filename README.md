@@ -1,32 +1,30 @@
-# Assistant Chatbot 
-
-It's an assistant chatbot powered by Llama 3.1 with ChromaDB for persistent memory storage.
+# Assistant Chatbot
+An AI-powered assistant chatbot with persistent memory, multi-session management, and web search integration.
 
 ## Live Demo
-
 [Try it here](https://memory-chatbot-ai.streamlit.app/)
 
 ---
 
 ## Project Overview
-This project demonstrates building an AI chatbot with persistent memory using Llama 3.1 and the Groq API. The chatbot maintains context across conversations by storing chat history and memory, enabling more personalized and context-aware interactions.
+This project demonstrates building an AI chatbot with persistent memory using Llama 3.3 and the Groq API. The chatbot maintains context across conversations by storing chat history and memory, enabling more personalized and context-aware interactions.
 
-The project also integrates web search for retrieving current information beyond the model’s knowledge cutoff. Users can manage multiple chat sessions, rename conversations, and delete chats when needed.
+The project also integrates web search for retrieving current information beyond the model's knowledge cutoff. Users can manage multiple chat sessions, rename conversations, and delete chats when needed.
 
 ---
 
 ## Features
-- Persistent memory across chats
-- Multiple chat sessions
-- Rename & delete chats
-- Web search integration
-- Context-aware responses
+- Persistent memory across chats using ChromaDB vector storage
+- Multiple chat sessions with rename and delete support
+- Web search integration via DuckDuckGo
+- Context-aware responses using semantic similarity
 - SQLite chat history storage
-- Groq API integration with Llama 3.1
+- Groq API integration with Llama 3.3 (llama-3.3-70b-versatile)
 
 ---
 
 ## Project Structure
+
 
 ```
 assistant-chatbot/
@@ -63,10 +61,7 @@ Example:
 - Assistant: "You previously mentioned that your favorite language is Python."
 
 ### Managing Chats
-Users can:
-- Create multiple chat sessions
-- Rename conversations
-- Delete chats when no longer needed
+Users can create multiple chat sessions, rename conversations, and delete chats when no longer needed.
 
 ### Web Search
 If current or real-time information is required, the assistant performs a web search to improve response accuracy.
@@ -74,8 +69,6 @@ If current or real-time information is required, the assistant performs a web se
 ---
 
 ## Workflow
-
-- The system retrieves semantically similar memories using embeddings generated from sentence-transformers. Relevant memories are appended to the prompt before sending the request to the Groq-hosted Llama 3.1 model.
 
 ```text
 User Input
@@ -97,23 +90,24 @@ Store Conversation in Memory
 
 ## Tech Stack
 - Python
-- Llama 3.1
+- Llama 3.3 (llama-3.3-70b-versatile)
 - Groq API
-- SQLite
-- Streamlit 
-- dotenv
 - LangChain
-- duckduckgosearch
 - ChromaDB
+- SQLite
+- Streamlit
+- sentence-transformers
+- ddgs (DuckDuckGo Search)
+- dotenv
 
 ---
 
 ## Installation
 1. Clone the repo
 2. Create a virtual environment
-3. pip install -r requirements.txt
-4. Add your GROQ_API_KEY to .env
-5. streamlit run app.py
+3. `pip install -r requirements.txt`
+4. Add your `GROQ_API_KEY` to `.env`
+5. `streamlit run app.py`
 
 ---
 
