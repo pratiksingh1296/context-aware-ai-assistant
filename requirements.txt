@@ -3,9 +3,9 @@ python-dotenv
 
 langchain
 langchain-core
-langchain-groq
 langchain-community
 langchain-classic
+langchain-groq
 
 groq
 tavily-python
@@ -16,7 +16,6 @@ pysqlite3-binary
 
 protobuf==3.20.3
 pandas
-numpy
 
 sentence-transformers
 ddgs

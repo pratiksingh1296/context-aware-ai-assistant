@@ -40,6 +40,9 @@ def get_secret(key):
     return value
 
 groq_api_key = get_secret("GROQ_API_KEY")
+tavily_api_key = get_secret("TAVILY_API_KEY")
+
+os.environ["TAVILY_API_KEY"] = tavily_api_key
 
 
 # ==================================================
