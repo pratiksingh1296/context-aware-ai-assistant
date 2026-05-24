@@ -24,6 +24,14 @@ def init_db():
 def save_sessions(user_id, sessions):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
+    # Remove existing sessions for user
+    c.execute(
+        "DELETE FROM sessions WHERE user_id = ?",
+        (user_id,)
+    )
+
+    # Save current sessions
     for session_name, messages in sessions.items():
         c.execute('''
             INSERT OR REPLACE INTO sessions (user_id, session_name, messages)
