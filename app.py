@@ -13,7 +13,7 @@ except ModuleNotFoundError:
 
 import streamlit as st 
 from llm import generate_response, generate_chat_title
-from memory import add_to_memory, retrieve_memory
+from memory import add_to_memory, retrieve_memory, extract_and_store_facts, retrieve_facts
 from storage import init_db, save_sessions, load_sessions
 
 
@@ -274,11 +274,23 @@ if prompt := st.chat_input("Say something..."):
     # Memory Retrieval + Prompt Construction
     # ==================================================
 
+    # Fetch all known facts about this user - always injected
+    user_facts = retrieve_facts(USER_ID)
+    facts_text = "\n".join(user_facts) if user_facts else ""
 
+    # Semantic search over past conversations
     past_context = retrieve_memory(USER_ID, prompt)
     context_text = "\n".join(past_context) if past_context else ""
-    full_prompt = f"Context from memory: {context_text}\n\nCurrent question: {prompt}" if context_text else prompt
 
+    # Build enriched prompt with facts first, then relevant memory
+    if facts_text and context_text:
+        full_prompt = f"Known facts about the user:\n{facts_text}\n\nContext from memory: {context_text}\n\nCurrent question: {prompt}" 
+    elif facts_text:
+        full_prompt = f"Known facts about the user:\n{facts_text}\n\nCurrent question: {prompt}"
+    elif context_text:
+        full_prompt = f"Context from memory:\n{context_text}\n\nCurrent question: {prompt}"
+    else:
+        full_prompt = prompt
 
     # ==================================================
     # Response Generation
@@ -300,3 +312,5 @@ if prompt := st.chat_input("Say something..."):
 
     add_to_memory(USER_ID, prompt, st.session_state.current_session)
 
+    # Extract and store any personal facts from user messag
+    extract_and_store_facts(USER_ID, prompt, st.session_state.current_session)

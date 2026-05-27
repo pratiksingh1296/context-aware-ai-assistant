@@ -1,6 +1,6 @@
 # 🧠 Context-Aware AI Assistant
 
-Built as an AI engineering portfolio project exploring retrieval-augmented generation (RAG), semantic memory systems, and conversational agent design.
+Built as an AI engineering portfolio project exploring retrieval-augmented generation (RAG), long-term memory architectures, and conversational agent design.
 
 An AI-powered conversational assistant with persistent vector memory, multi-session chat management, and real-time web retrieval.
 
@@ -57,13 +57,14 @@ The project focuses heavily on:
 
 # ✨ Features
 
-## 🧠 Persistent Semantic Memory
-- Long-term memory powered by ChromaDB vector storage
-- Retrieves semantically relevant past conversations
-- Memory persists across separate chat sessions
-- Sentence-level memory chunking for improved retrieval precision
-- Similarity-threshold filtering reduces irrelevant memory retrieval
-
+## 🧠 Memory & Personalization
+- Persistent semantic memory using ChromaDB vector search
+- Structured fact memory with automatic user profile extraction
+- Multi-session conversation management
+- Real-time web search using Tavily
+- Date-aware reasoning and temporal query normalization
+- User profile persistence across sessions
+- Streamlit-based conversational interface
 ---
 
 ## 🌐 Real-Time Web Search
@@ -132,26 +133,53 @@ context-aware-ai-assistant/
 
 ## Memory System
 
-The assistant uses two memory layers:
+The assistant uses a three-layer memory architecture designed to balance conversational context, long-term recall, and retrieval quality.
 
 ### 1. Short-Term Conversational Memory
-Maintained through chat session history.
+
+Maintained through session chat history.
 
 Used for:
-- conversational continuity,
-- remembering recent exchanges,
-- maintaining context inside a session.
+- conversational continuity
+- remembering recent exchanges
+- maintaining context within an active conversation
 
 ---
 
 ### 2. Long-Term Semantic Memory
+
 Powered by ChromaDB vector embeddings.
 
 Workflow:
 1. User messages are converted into vector embeddings
 2. Embeddings are stored in ChromaDB
-3. Relevant memories are retrieved using semantic similarity
+3. Relevant memories are retrieved using semantic similarity search
 4. Retrieved context is injected into prompts dynamically
+
+Examples:
+- "I enjoy football"
+- "I'm preparing for Data Science interviews"
+
+---
+
+### 3. Structured Fact Memory
+
+Uses an LLM-powered extraction pipeline to identify stable user facts and preferences.
+Unlike conversational memory, structured facts are stored independently and semantically deduplicated, allowing the assistant to maintain stable user preferences and profile information across conversations.
+
+Workflow:
+1. User messages are analyzed for long-term personal facts
+2. Facts are categorized (profile, location, interest, goal, occupation)
+3. Semantic deduplication prevents duplicate storage
+4. Stored facts are retrieved independently from conversational memory
+
+Examples:
+- The user's name is Pratik
+- The user lives in Navi Mumbai
+- The user loves football
+
+This separation improves retrieval quality by distinguishing stable personal facts from general conversational context.
+
 
 ---
 
@@ -162,15 +190,17 @@ User Input
     ↓
 Chat History Retrieval
     ↓
-Memory Search (ChromaDB)
+Semantic Memory Retrieval
     ↓
-Relevant Context Injection
+Fact Memory Retrieval
+    ↓
+Context Injection
     ↓
 (Optional) Web Search
     ↓
 Llama 3.3 Response Generation
     ↓
-Store Conversation in Memory
+Store Conversation + Facts
 ```
 
 ---
@@ -198,6 +228,7 @@ Store Conversation in Memory
 | Frontend               | Streamlit                           |
 | Embeddings             | sentence-transformers               |
 | Environment Management | python-dotenv                       |
+| Structured Fact Memory | Groq + LangChain                    |
 
 ---
 
@@ -226,6 +257,22 @@ Store Conversation in Memory
 
 # Engineering Challenges
 
+### Building Reliable Long-Term Memory
+
+A major challenge was balancing memory recall with retrieval quality as conversations grow over time.
+
+Naively storing every message leads to noisy retrieval and duplicate information. To address this, the assistant combines semantic vector search with a dedicated structured fact memory layer.
+
+The fact extraction pipeline:
+- identifies stable user attributes and preferences
+- categorizes extracted facts
+- performs semantic deduplication
+- stores facts separately from conversational context
+
+This design improves memory precision while preserving rich conversational history.
+
+### Additional Challenges
+
 - Designing a memory system that balances retrieval quality and noise reduction
 - Preventing duplicate memory storage across sessions
 - Managing persistent chat history alongside vector memory
@@ -236,16 +283,11 @@ Store Conversation in Memory
 
 # 🚧 Future Improvements
 
-- Support for file uploads and document Q&A
-- User authentication for multi-user support
-- LangGraph integration for more complex agentic workflows
-- Voice input support
-- Mobile-responsive UI
-- Docker deployment
-- External database persistence (PostgreSQL / pgvector)
-- Memory summarization layer
-- Debug / observability sidebar
-- Streaming responses
+- Conversation summarisation for long-running chats
+- PostgreSQL + pgvector migration
+- Memory conflict resolution and fact updates (e.g., detecting when a user's location or occupation changes)
+- PDF upload and retrieval-augmented generation (RAG)
+- Hybrid memory ranking (recency + semantic relevance)
 
 ---
 
