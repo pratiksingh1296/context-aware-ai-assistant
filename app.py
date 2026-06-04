@@ -10,17 +10,16 @@ except ModuleNotFoundError:
 # Imports
 # ==================================================
 
-
 import streamlit as st 
-from llm import generate_response, generate_chat_title
+from llm import generate_response, generate_chat_title, generate_updated_summary
 from memory import add_to_memory, retrieve_memory, extract_and_store_facts, retrieve_facts
-from storage import init_db, save_sessions, load_sessions
+from storage import init_db, save_sessions, load_sessions, save_summary, load_summary, count_user_messages
+from utils import debug_print
 
 
 # ==================================================
 # Streamlit Page Configuration
 # ==================================================
-
 
 st.set_page_config(page_title="Assistant Chatbot", page_icon="🤖", layout="centered")
 
@@ -29,12 +28,16 @@ st.set_page_config(page_title="Assistant Chatbot", page_icon="🤖", layout="cen
 # Database Initialization
 # ==================================================
 
-
 init_db()
 
 
 # ==================================================
 # User Authentication / User Session Setup
+# ==================================================
+
+
+# ==================================================
+# User Profile
 # ==================================================
 
 def store_user_profile(user_id):
@@ -46,6 +49,44 @@ def store_user_profile(user_id):
         f"My name is {user_id}",
         "profile"
     )
+
+# ==================================================
+# Summarization
+# ==================================================
+
+def summarize(user_id, session_name, messages):
+    user_msg_count = count_user_messages(messages)
+    
+    # Trigger summarization based on USER message count,
+    # but track progress using the absolute message index.
+    SUMMARY_TRIGGER_THRESHOLD = 20
+
+    if user_msg_count % SUMMARY_TRIGGER_THRESHOLD != 0 or user_msg_count == 0:
+        return
+    
+    # Load existing summary state
+    result = load_summary(user_id, session_name)
+    if result:
+        previous_summary, last_index = result
+    else:
+        previous_summary = ""
+        last_index = 0
+
+    # Slice only new messages since last summarization
+    recent_turns = messages[last_index:]
+
+    # Generate updated summary
+    updated = generate_updated_summary(previous_summary, recent_turns)
+
+    # Summarization is triggered using the count of user messages,
+    # but we store the absolute message index so we can later slice
+    # the chat history and retrieve only unsummarized turns.
+    total_message_index = len(messages)
+    
+    # Save with updated index
+    debug_print(f"[SUMMARY] Generated for '{session_name}' at {total_message_index} messages: {updated[:100]}...")
+    save_summary(user_id, session_name, updated, total_message_index)
+
 
 if "user_id" not in st.session_state:
     st.session_state.user_id = ""
@@ -70,7 +111,6 @@ if not any(USER_ID.lower() in str(mem).lower() for mem in existing):
 # Session State Initialization
 # ==================================================
 
-
 if "sessions" not in st.session_state:
     st.session_state.sessions, st.session_state.current_session = load_sessions(USER_ID)
 
@@ -81,7 +121,6 @@ if "editing_session" not in st.session_state:
 # ==================================================
 # Sidebar - Chat Session Management
 # ==================================================
-
 
 with st.sidebar:
     st.header("Chat Sessions")
@@ -168,7 +207,6 @@ with st.sidebar:
 # Main Chat Interface
 # ==================================================
 
-
 st.title("🤖 Assistant Chatbot")
 st.markdown(f"**Current Chat:** `{st.session_state.current_session}`")
 st.caption("Powered by Llama 3.3 + ChromaDB persistent memory")
@@ -177,7 +215,6 @@ st.caption("Powered by Llama 3.3 + ChromaDB persistent memory")
 # ==================================================
 # Chat History Rendering
 # ==================================================
-
 
 if st.session_state.current_session is None:
     st.session_state.current_session = "Chat 1"
@@ -193,7 +230,6 @@ for message in messages:
 # ==================================================
 # Initial Greeting Logic
 # ==================================================
-
 
 if len(messages) == 0:
 
@@ -234,7 +270,6 @@ Try asking:
 # ==================================================
 # User Input Handling
 # ==================================================
-
 
 if prompt := st.chat_input("Say something..."):
 
@@ -282,20 +317,28 @@ if prompt := st.chat_input("Say something..."):
     past_context = retrieve_memory(USER_ID, prompt)
     context_text = "\n".join(past_context) if past_context else ""
 
-    # Build enriched prompt with facts first, then relevant memory
-    if facts_text and context_text:
-        full_prompt = f"Known facts about the user:\n{facts_text}\n\nContext from memory: {context_text}\n\nCurrent question: {prompt}" 
-    elif facts_text:
-        full_prompt = f"Known facts about the user:\n{facts_text}\n\nCurrent question: {prompt}"
-    elif context_text:
-        full_prompt = f"Context from memory:\n{context_text}\n\nCurrent question: {prompt}"
-    else:
-        full_prompt = prompt
+    # Get summary if present
+    summary_result = load_summary(USER_ID, st.session_state.current_session)
+    summary_text = summary_result[0] if summary_result else ""
+
+    # Build enriched prompt with summary, facts & past context when available
+
+    prompt_parts = []
+
+    if summary_text:
+        prompt_parts.append(f"Previous Conversation summary:\n{summary_text}")
+    if facts_text:
+        prompt_parts.append(f"Known facts about the user:\n{facts_text}")
+    if context_text:
+        prompt_parts.append(f"Context from memory:\n{context_text}")
+
+    prompt_parts.append(f"Current User Question: {prompt}")
+
+    full_prompt = "\n\n".join(prompt_parts)
 
     # ==================================================
     # Response Generation
     # ==================================================
-
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
@@ -314,3 +357,6 @@ if prompt := st.chat_input("Say something..."):
 
     # Extract and store any personal facts from user messag
     extract_and_store_facts(USER_ID, prompt, st.session_state.current_session)
+
+    # Summarize & store the summary
+    summarize(USER_ID, st.session_state.current_session, messages)

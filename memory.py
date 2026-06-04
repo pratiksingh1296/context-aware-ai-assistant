@@ -9,6 +9,7 @@ import re
 import json
 
 from llm import get_llm
+from utils import debug_print
 
 '''
 # To use different embedding function :
@@ -30,17 +31,6 @@ collection = client.get_or_create_collection(name="chat_memory")
 
 # New facts collection — stores extracted personal facts per user
 facts_collection = client.get_or_create_collection(name="user_facts")
-
-
-# ==============================================================================
-# DEBUG CONFIGURATION
-# ==============================================================================
-
-DEBUG = False
-
-def debug_print(*args):
-    if DEBUG:
-        print(*args)
 
 # ==============================================================================
 # CORE MEMORY FUNCTIONS

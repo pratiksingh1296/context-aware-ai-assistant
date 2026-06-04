@@ -2,7 +2,7 @@
 
 Built as an AI engineering portfolio project exploring retrieval-augmented generation (RAG), long-term memory architectures, and conversational agent design.
 
-An AI-powered conversational assistant with persistent vector memory, multi-session chat management, and real-time web retrieval.
+An AI-powered conversational assistant with semantic memory, structured fact extraction, conversation summarization, multi-session chat management, and real-time web retrieval.
 
 Built using Llama 3.3, LangChain, ChromaDB, Tavily Search, and Streamlit.
 
@@ -42,9 +42,11 @@ This project demonstrates building a context-aware AI assistant capable of:
 - maintaining conversational continuity using semantic memory retrieval.
 
 The assistant combines:
-- short-term conversational memory through session history,
+- short-term session memory through chat history,
 - long-term semantic memory through vector embeddings,
-- dynamic web retrieval for up-to-date information.
+- structured fact memory through LLM-powered extraction,
+- conversation summarization for context compression,
+- dynamic web retrieval for real-time information.
 
 The project focuses heavily on:
 - retrieval quality,
@@ -65,6 +67,8 @@ The project focuses heavily on:
 - Date-aware reasoning and temporal query normalization
 - User profile persistence across sessions
 - Streamlit-based conversational interface
+- Running conversation summaries for long-term context retention
+
 ---
 
 ## 🌐 Real-Time Web Search
@@ -120,6 +124,7 @@ context-aware-ai-assistant/
 ├── llm.py
 ├── memory.py
 ├── storage.py
+├── utils.py                    # Shared debug utilities
 ├── requirements.txt
 ├── runtime.txt
 ├── README.md
@@ -133,7 +138,7 @@ context-aware-ai-assistant/
 
 ## Memory System
 
-The assistant uses a three-layer memory architecture designed to balance conversational context, long-term recall, and retrieval quality.
+The assistant uses four complementary memory layers:
 
 ### 1. Short-Term Conversational Memory
 
@@ -155,6 +160,11 @@ Workflow:
 2. Embeddings are stored in ChromaDB
 3. Relevant memories are retrieved using semantic similarity search
 4. Retrieved context is injected into prompts dynamically
+
+Used For:
+* Recalling past discussions
+* Semantic memory retrieval
+* Long-term conversational context
 
 Examples:
 - "I enjoy football"
@@ -180,27 +190,64 @@ Examples:
 
 This separation improves retrieval quality by distinguishing stable personal facts from general conversational context.
 
+---
 
+### 4. Conversation Summarization
+
+Uses a running summary stored in SQLite to compress long conversations while preserving important context.
+
+Features:
+- Automatic summarization after configurable conversation thresholds
+- Chronological state tracking
+- Preservation of projects, goals, progress, decisions, and open tasks
+- Reduced prompt growth during long conversations
+- Session-scoped summary management
+
+---
+
+##  Response Generation Pipeline
+
+```text
+User Query
+↓
+Retrieve Conversation Summary
+↓
+Retrieve User Facts
+↓
+Retrieve Relevant Semantic Memories
+↓
+Construct Context-Enriched Prompt
+↓
+LLM / Agent Execution
+↓
+Generate Response
+↓
+Update Memory Systems
+```
 ---
 
 ## Retrieval Flow
 
 ```text
 User Input
-    ↓
-Chat History Retrieval
-    ↓
-Semantic Memory Retrieval
-    ↓
+↓
+Conversation Summary Retrieval
+↓
 Fact Memory Retrieval
-    ↓
+↓
+Semantic Memory Retrieval
+↓
 Context Injection
-    ↓
+↓
 (Optional) Web Search
-    ↓
-Llama 3.3 Response Generation
-    ↓
-Store Conversation + Facts
+↓
+Response Generation
+↓
+Store Conversation
+↓
+Fact Extraction
+↓
+Summary Update
 ```
 
 ---
@@ -228,7 +275,6 @@ Store Conversation + Facts
 | Frontend               | Streamlit                           |
 | Embeddings             | sentence-transformers               |
 | Environment Management | python-dotenv                       |
-| Structured Fact Memory | Groq + LangChain                    |
 
 ---
 
@@ -259,23 +305,23 @@ Store Conversation + Facts
 
 ### Building Reliable Long-Term Memory
 
-A major challenge was balancing memory recall with retrieval quality as conversations grow over time.
+A key challenge was preventing conversational memory from becoming noisy over time.
 
-Naively storing every message leads to noisy retrieval and duplicate information. To address this, the assistant combines semantic vector search with a dedicated structured fact memory layer.
+To address this, the assistant uses multiple complementary memory systems:
+1. Semantic conversation memory for contextual retrieval
+2. Structured fact memory for stable user attributes and preferences
+3. Running conversation summaries for long-term context compression
 
-The fact extraction pipeline:
-- identifies stable user attributes and preferences
-- categorizes extracted facts
-- performs semantic deduplication
-- stores facts separately from conversational context
+The fact memory pipeline uses an LLM to extract long-term user facts, categorize them, deduplicate semantically similar memories, and store them separately from conversational context.
 
-This design improves memory precision while preserving rich conversational history.
+The summarization layer maintains a session-level running summary that preserves projects, goals, progress, decisions, and open tasks while preventing prompt size from growing indefinitely.
 
-### Additional Challenges
+Key challenges solved:
 
-- Designing a memory system that balances retrieval quality and noise reduction
+- Designing a multi-layer memory architecture combining semantic memory, fact memory, and summarization
 - Preventing duplicate memory storage across sessions
 - Managing persistent chat history alongside vector memory
+- Building conversation summarization for long-running chats
 - Handling relative date normalization for temporal queries
 - Optimizing Streamlit performance using resource caching
 
@@ -283,11 +329,11 @@ This design improves memory precision while preserving rich conversational histo
 
 # 🚧 Future Improvements
 
-- Conversation summarisation for long-running chats
 - PostgreSQL + pgvector migration
 - Memory conflict resolution and fact updates (e.g., detecting when a user's location or occupation changes)
 - PDF upload and retrieval-augmented generation (RAG)
 - Hybrid memory ranking (recency + semantic relevance)
+- Automatic pruning / archiving of summarized chat history
 
 ---
 

@@ -15,6 +15,8 @@ from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.messages import HumanMessage, AIMessage
+# Util import
+from utils import debug_print
 
 
 # ==================================================
@@ -200,6 +202,110 @@ def normalize_dates(query):
 
 
 # ==================================================
+# Summary Generation
+# ==================================================
+
+def generate_updated_summary(previous_summary: str, recent_turns: list) -> str:
+    """
+    Combines the existing running summary with the latest raw context window
+    to return a highly dense, chronologically accurate updated summary string.
+    """
+
+    llm = get_llm()
+
+    formatted_turns = "\n\n".join(
+        f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
+        for msg in recent_turns
+    )
+    
+    # The prompt must explicitly treat the previous summary as ground truth and instructions must enforce formatting density (avoid conversational prose).
+    summary_prompt = f"""
+    You are an advanced state management engine for an AI assistant. 
+    
+    Your responsibility is to maintain a concise, accurate, and continuously updated historical summary of the conversation.
+
+    The Current Historical Summary should be treated as the source of truth. Your task is to intelligently merge new information from the latest interaction turns into that summary.
+    
+    CRITICAL INSTRUCTIONS:
+
+    * Maintain strict chronological order of important events.
+    * Preserve only information likely to remain useful in future conversations.
+    * Synthesize the new interaction turns directly into the existing historical summary context.
+    * Remove conversational filler, small talk, salutations, and repetition.
+    * Do not include assistant phrasing, explanations, or dialogue formatting.
+    * Do not restate information already present in the Current Historical Summary unless it has changed, been completed, or been superseded by newer information.
+    * Merge related information into existing sections whenever possible rather than appending redundant details.
+    * Keep the summary concise and information-dense.
+    * If the current summary is empty, generate a clean summary starting from the new turns provided.
+
+    Preserve:
+    * Ongoing Projects
+    * Current Goals
+    * Important progress and milestones
+    * Technical & architectural decisions
+    * Reasoning behind important decisions
+    * Open tasks
+    * Unresolved questions
+    * User preferences that affect future interactions
+    * Long-running discussion topics
+
+    Do NOT preserve:
+    * Greetings and small talk
+    * Repeated discussion
+    * Temporary moods
+    * One-time events with no future relevance
+    * Conversational filler
+    * Routine acknowledgements ("thanks", "okay", "sounds good", etc.)
+
+    IMPORTANT:
+
+    Facts about the user (name, location, occupation, hobbies, preferences, etc.) are stored separately in a dedicated fact memory system.
+
+    Do NOT duplicate user profile facts unless they are directly relevant to understanding the ongoing conversation state.
+
+    Current Historical Summary:
+    "{previous_summary if previous_summary else 'No history recorded yet.'}"
+    
+    New Interaction Turns to Incorporate:
+    {formatted_turns}
+
+    OUTPUT REQUIREMENTS:
+
+    Return ONLY the updated summary using the following structure. Omit sections that have no relevant content.
+
+    Projects:
+
+    * ...
+
+    Goals:
+
+    * ...
+
+    Progress:
+
+    * ...
+
+    Decisions:
+
+    * ...
+
+    Open Tasks:
+
+    * ...
+
+"""
+
+    try:
+        # Invoke your model wrapper
+        response = llm.invoke(summary_prompt).content.strip()
+        return response
+    except Exception as e:
+        debug_print("SUMMARY GENERATION ERROR:", repr(e))
+        # Fallback: if the LLM call fails, return the original summary to prevent state corruption
+        return previous_summary
+
+
+# ==================================================
 # Response Generation
 # ==================================================
 
@@ -244,7 +350,7 @@ def generate_response(prompt_text, chat_history=None):
         return response["output"]
     
     except Exception as e:
-        print("AGENT ERROR:", repr(e))
+        debug_print("AGENT ERROR:", repr(e))
         error_str = str(e)
 
         # Immediate exit for API exhaustion
@@ -271,7 +377,7 @@ def generate_response(prompt_text, chat_history=None):
             return response.content
         
         except Exception as e2:
-            print("LLM FALLBACK ERROR:", repr(e2))
+            debug_print("LLM FALLBACK ERROR:", repr(e2))
             if "rate_limit_exceeded" in str(e2) or "429" in str(e2):
                 return "I've hit my API rate limit for now. Please wait a few minutes and try again."
             return "Something went wrong. Please try again."
