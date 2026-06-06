@@ -13,6 +13,7 @@ tavily-python
 chromadb==0.4.24
 numpy==1.26.4
 pysqlite3-binary
+psycopg2-binary
 
 protobuf==3.20.3
 pandas
