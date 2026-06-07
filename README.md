@@ -270,7 +270,7 @@ Summary Update
 | Inference API          | Groq API                            |
 | Framework              | LangChain                           |
 | Vector Database        | ChromaDB                            |
-| Chat Storage           | SQLite                              |
+| Chat Storage           | PostgreSQL                          |
 | Web Search             | Tavily Search                       |
 | Frontend               | Streamlit                           |
 | Embeddings             | sentence-transformers               |

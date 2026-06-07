@@ -340,9 +340,12 @@ if prompt := st.chat_input("Say something..."):
     # Response Generation
     # ==================================================
 
+    # Use only recent messages for LLM context, full history kept for UI
+    recent_messages = messages[-20:] if len(messages) > 20 else messages
+
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            response = generate_response(full_prompt, st.session_state.sessions[st.session_state.current_session])
+            response = generate_response(full_prompt, recent_messages)
         st.markdown(response)
 
 

@@ -238,6 +238,15 @@ def generate_updated_summary(previous_summary: str, recent_turns: list) -> str:
     * Keep the summary concise and information-dense.
     * If the current summary is empty, generate a clean summary starting from the new turns provided.
 
+    CLASSIFICATION RULES:
+
+    * "Preparing for X", "studying for X", "learning X", "practicing X", or "working towards X" always belongs under Goals — never Projects.    
+    * Career aspirations, interview preparation, certifications, education, and skill development belong under Goals.
+    * Projects are concrete initiatives, products, applications, systems, models, or workstreams being actively built, implemented, researched, or maintained.
+    * Completed work belongs under Progress.
+    * Architectural or strategic choices belong under Decisions.
+    * Outstanding work items, bugs, or next steps belong under Open Tasks.
+
     Preserve:
     * Ongoing Projects
     * Current Goals

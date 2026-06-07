@@ -2,35 +2,25 @@
 # IMPORTS & DATABASE INITIALIZATION
 # ==============================================================================
 
-import chromadb
-import uuid
+import psycopg2
 import time
 import re
 import json
+import os
 
+# 3rd Party Imports
+from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
 from llm import get_llm
 from utils import debug_print
 
-'''
-# To use different embedding function :
+# Database file path
+load_dotenv()
+DATABASE_URL = os.getenv('DATABASE_URL')
 
-from chromadb.utils import embedding_functions
+# Initialize embedding model 
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
-embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
-)
-
-'''
-
-# Initialize a persistent local vector database directory.
-# This creates a folder named './memory_store' to save data permanently across restarts
-client = chromadb.PersistentClient(path="./memory_store")
-
-# Create or connect to an existing vector database table (Collection).
-collection = client.get_or_create_collection(name="chat_memory")
-
-# New facts collection — stores extracted personal facts per user
-facts_collection = client.get_or_create_collection(name="user_facts")
 
 # ==============================================================================
 # CORE MEMORY FUNCTIONS
@@ -45,23 +35,57 @@ def add_to_memory(user_id: str, text: str, session_id: str):
     # Split incoming text by punctuation marks (. ! ?) or line breaks to isolate sentences
     chunks = re.split(r"[.!?\n]+", text)
 
-    for chunk in chunks:
-        chunk = chunk.strip()
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as c:
+            for chunk in chunks:
+                chunk = chunk.strip()
 
-        # Content Guard: Avoid cluttering the database with empty words or short fillers
-        if len(chunk) >= 10: # Only store chunks that are reasonably long
-            debug_print(f"ADDING MEMORY: {chunk}")
-            collection.add(
-                documents=[chunk],
-                metadatas=[{
-                    "user_id": user_id,
-                    "session_id": session_id,
-                    "timestamp": time.time()
-                }],
-                # ChromaDB requires a string-formatted globally unique ID for every single document
-                ids=[str(uuid.uuid4())]
-            )
-    debug_print("COLLECTION COUNT:", collection.count())
+                # Content Guard: Avoid cluttering the database with empty words or short fillers
+                # Only store chunks that are reasonably long
+                if len(chunk) < 10:
+                    continue
+
+                # Skip questions
+                if chunk.lower().startswith(('what', 'who', 'where', 'when', 'why', 'how', 'is ', 'are ', 'do ', 'does ', 'can ', 'could ')):
+                    debug_print(f"SKIPPING QUESTION: {chunk}")
+                    continue
+
+                debug_print(f"ADDING MEMORY: {chunk}")
+
+                # 1. Generate embedding for chunk
+                embedding = embedding_model.encode(chunk).tolist()
+
+                # 2. Check for duplicates before inserting
+                c.execute('''
+                    SELECT content, embedding <-> %s::vector AS distance
+                    FROM chat_memory
+                    WHERE user_id = %s
+                    ORDER BY distance
+                    LIMIT 1
+                ''', (embedding, user_id) )
+
+                existing = c.fetchone()
+
+                if existing:
+                    debug_print(
+                    f"Closest memory: {existing[0][:50]}... "
+                    f"distance={existing[1]:.4f}")
+
+                if existing and existing[1] < 0.3:
+                    debug_print(f"Closest memory: {existing[0][:50]}... " 
+                                f"distance={existing[1]:.4f}")
+                    debug_print(f"DUPLICATE MEMORY SKIPPED: {chunk}")
+                    continue
+
+                # 2. Insert into chat_memory if not duplicate
+                c.execute('''
+                        INSERT INTO chat_memory (user_id, session_id, content, embedding, timestamp)
+                        VALUES (%s, %s, %s, %s, %s)
+                    ''', (user_id, session_id, chunk, embedding, time.time()) )
+                
+                c.execute("SELECT COUNT(*) FROM chat_memory WHERE user_id = %s", (user_id,))
+                count = c.fetchone()[0]
+                debug_print(f"MEMORIES FOR {user_id}: {count}")
 
 
 def retrieve_memory(user_id: str, query: str, limit: int = 10, threshold: float = 1.2)-> list:
@@ -69,31 +93,47 @@ def retrieve_memory(user_id: str, query: str, limit: int = 10, threshold: float 
     Queries ChromaDB vector space using semantic search.
     Filters out irrelevant noise using an L2 Distance similarity cap.
     """
-    # Perform semantic query filtered strictly to the requesting user's ID
-    results = collection.query(
-        query_texts=[query], 
-        n_results=limit,
-        where={"user_id": user_id}
-    )
-    debug_print(results)
+    # Generate query embedding
+    query_embedding = embedding_model.encode(query).tolist()
+
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as c:
+            # Semantic search with L2 distance operator <-> (PGVector)
+            c.execute('''
+                    SELECT content, embedding <-> %s::vector AS distance
+                    FROM chat_memory
+                    WHERE user_id = %s
+                    ORDER BY distance
+                    LIMIT %s
+                ''', (query_embedding, user_id, limit)
+                )
+            
+            results = c.fetchall()
 
     # Defensive Guard: Gracefully exit if database returns empty or missing dictionary payload keys
-    if not results['documents'] or not results['documents'][0]:
+    if not results:
         debug_print("DEBUG: No matching documents found in vector database.")
         return []
         
-    documents = results['documents'][0]
-    # Fallback to empty list if distances are omitted by ChromaDB engine configuration
-    distances = results.get('distances', [[]])[0] if results.get('distances') else [0.0] * len(documents)
-    debug_print("\n--- CHROMADB SEARCH DEBUG ---")
+    documents = [row[0] for row in results]
+    distances = [row[1] for row in results]
+
+    debug_print("\n--- PGVECTOR SEARCH DEBUG ---")
     debug_print("MATCHED DOCS:", documents)
     debug_print("L2 DISTANCES:", distances)
     debug_print("-----------------------------\n")
 
-    # Vector Distance Filter (L2 Score): Keep matches closer than our threshold
-    # Lower distance scale limits mean tighter contextual relevance matches.
-    filtered = [doc for doc, dist in zip(documents, distances) if dist < threshold]
+    filtered = []
+
+    for content, distance in results:
+        debug_print(f"DISTANCE={distance:.4f} | {content}")
+
+        # Vector Distance Filter, keep matches closer than our threshold
+        if distance < threshold:
+            filtered.append(content)
+
     debug_print("FILTERED MEMORIES:", filtered)
+
     return filtered
 
 
@@ -189,54 +229,69 @@ def extract_and_store_facts(user_id: str, user_message: str, session_id: str):
         return
 
     stored_count = 0
-    # Process each extracted fact independently
-    for item in extracted_facts:
-        fact_text = item.get("fact", "").strip()
-        category = item.get("category", "general").strip()
 
-        if not fact_text or fact_text.lower() in ["null", "none", ""]:
-            continue
+
+    # Opening connection 
+    with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as c:
+                    
+                    # Process each extracted fact independently
+                    for item in extracted_facts:
+
+                        fact_text = item.get("fact", "").strip()
+                        category = item.get("category", "general").strip()
+
+                        if not fact_text or fact_text.lower() in ["null", "none", ""]:
+                            continue
         
-        debug_print(f"EXTRACTED FACT: {fact_text} | CATEGORY: {category}")
+                        debug_print(f"EXTRACTED FACT: {fact_text} | CATEGORY: {category}")
 
-        # Handling duplicates, deduplicating against existing facts
-        try: 
-            existing = facts_collection.query(
-                query_texts=[fact_text],
-                n_results= 3,
-                where={"user_id": user_id}
-            )
+                        # Embedding the facts
+                        fact_embedding = embedding_model.encode(fact_text).tolist()
 
-            if existing['documents'] and existing['documents'][0]:
-                distances = existing.get('distances', [[]])[0]
-                # If a very similar fact already exists, skip storage
-                if distances and distances[0] < 0.3:
-                    debug_print(f"DUPLICATE FACT SKIPPED: {fact_text} (distance: {distances[0]:.3f})")
-                    continue
 
-        except Exception as e:
-            debug_print("DEDUPLICATION CHECK ERROR:", e)
-            # If dedup check fails, still attempt to store rather than silently drop
-
-        # Store new fact
-        try:
-            facts_collection.add(
-                documents=[fact_text],
-                metadatas=[{
-                    "user_id": user_id,
-                    "session_id": session_id,
-                    "category": category,
-                    "timestamp": time.time()
-                }],
-                ids=[str(uuid.uuid4())]
-            )
-            debug_print(f"FACT STORED: {fact_text}")
-            stored_count += 1
+                        # Handling duplicates, deduplicating against existing facts
+                        try:
+                            c.execute('''
+                                SELECT content, embedding <-> %s::vector AS distance
+                                FROM user_facts
+                                WHERE user_id = %s
+                                ORDER BY distance
+                                LIMIT 3
+                            ''', (fact_embedding, user_id))
             
-    
-        except Exception as e:
-            debug_print("FACT STORAGE ERROR:", e)
+                            results = c.fetchall()
+
+                            if results:
+                                best_match = results[0] # closest match
+                                best_content, best_distance = best_match
+                
+                                # If a very similar fact already exists, skip storage
+                                if best_distance < 0.3:
+                                    debug_print(f"DUPLICATE FACT SKIPPED: {fact_text} (distance: {best_distance:.3f})")
+                                    continue
+
+                        except Exception as e:
+                            debug_print("DEDUPLICATION CHECK ERROR:", e) 
+                            
+                        # If dedup check fails, still attempt to store rather than silently drop
+
+                        # Store new fact
+                        try:
+                            c.execute('''   
+                                INSERT INTO user_facts (user_id, session_id, content, category, embedding, timestamp)
+                                VALUES(%s,%s,%s,%s,%s,%s)
+                            ''', (user_id, session_id, fact_text, category, fact_embedding,time.time()))
+
+                            stored_count += 1
+                            debug_print(f"FACT STORED: {fact_text}")
+
+            
+                        except Exception as e:
+                            debug_print("FACT STORAGE ERROR:", e)
+
     debug_print(f"STORED {stored_count} NEW FACT(S)")
+
 
 # ==============================================================================
 # FACT RETRIEVAL
@@ -249,23 +304,25 @@ def retrieve_facts(user_id: str, limit: int = 25) -> list:
     Returns a list of fact strings, or an empty list if none exist.
     """
     try:
-        # ChromaDB requires n_results to not exceed collection count
-        total = facts_collection.count()
-        if total == 0:
-            return []
+        with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as c:
+                    c.execute('''
+                        SELECT content FROM user_facts WHERE user_id = %s LIMIT %s
+                        ''', (user_id, limit)
+                )   
+                    results = c.fetchall()
 
-        results = facts_collection.get(
-            where={"user_id": user_id}
-        )
-        
-        if not results or not results.get('documents'):
+        # Handling No User Facts
+        if not results:
+            debug_print(f"NO FACTS FOUND FOR {user_id}")
             return []
         
-        facts = results['documents'][:limit]
+
+        facts = [row[0] for row in results]
 
         debug_print(f"RETRIEVED {len(facts)} FACTS FOR {user_id}: {facts}")
-        return facts
 
+        return facts
 
     except Exception as e:
         debug_print("FACT RETRIEVAL ERROR:", e)
@@ -276,18 +333,34 @@ def retrieve_facts(user_id: str, limit: int = 25) -> list:
 # LOCAL SCRIPT EXECUTION TEST UNIT
 # ==============================================================================
 
+def clear_test_user(user_id):
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as c:
+            c.execute(
+                "DELETE FROM chat_memory WHERE user_id = %s",
+                (user_id,)
+            )
+
+            c.execute(
+                "DELETE FROM user_facts WHERE user_id = %s",
+                (user_id,)
+            )
+
 
 if __name__ == "__main__":
     # Define uniform test variables to mimic frontend calls
     TEST_USER = "user123"   
     TEST_SESSION = "session_abc_99"
 
+    clear_test_user(TEST_USER)
+    debug_print(f"CLEARED TEST DATA FOR {TEST_USER}")
+
     print("Populating database with conversational text snapshots...")
     
     # FIX: Added the missing 3rd argument (session_id) to match function definition signature
-    add_to_memory("user123", "I love playing football", TEST_SESSION)
-    add_to_memory("user123", "My favourite food is pizza", TEST_SESSION)
-    add_to_memory("user123", "I work as a data scientist", TEST_SESSION)
+    add_to_memory(TEST_USER, "I love playing football", TEST_SESSION)
+    add_to_memory(TEST_USER, "My favourite food is pizza", TEST_SESSION)
+    add_to_memory(TEST_USER, "I work as a data scientist", TEST_SESSION)
     print("Stored 3 contextual statements successfully.\n")
 
     # Query Test: Notice how the query words don't explicitly match "pizza" or "pepperoni"
@@ -305,5 +378,9 @@ if __name__ == "__main__":
     facts = retrieve_facts(TEST_USER)
     print("Stored facts:", facts)
 
-
+    print("\n--- Testing memory deduplication ---")
+    add_to_memory("user123", "I love football", TEST_SESSION)
+    add_to_memory("user123", "I enjoy football", TEST_SESSION)
+    add_to_memory("user123", "I enjoy playing football every weekend", TEST_SESSION)
+    
 

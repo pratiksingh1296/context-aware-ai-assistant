@@ -22,7 +22,7 @@ def init_db():
                 messages JSONB,
                 PRIMARY KEY (user_id, session_name)
                     );
-            ''')
+        ''')
 
             # Summary Table
             c.execute('''
@@ -33,7 +33,32 @@ def init_db():
                 last_summarized_message INTEGER,
                 PRIMARY KEY(user_id, session_name)
                     );
-            ''')
+        ''')
+
+            # Chat memory table
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS chat_memory (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id TEXT,
+                session_id TEXT,
+                content TEXT,
+                embedding VECTOR(384),
+                timestamp FLOAT
+                    );
+        ''')
+            
+            # User Facts Table
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS user_facts (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id TEXT,
+                session_id TEXT,
+                content TEXT,
+                category TEXT,
+                embedding VECTOR(384),
+                timestamp FLOAT
+                        );
+    ''')
 
 
 # Save sessions to DB
