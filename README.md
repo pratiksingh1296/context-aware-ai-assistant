@@ -2,9 +2,9 @@
 
 Built as an AI engineering portfolio project exploring retrieval-augmented generation (RAG), long-term memory architectures, and conversational agent design.
 
-An AI-powered conversational assistant with semantic memory, structured fact extraction, conversation summarization, multi-session chat management, and real-time web retrieval.
+An AI-powered conversational assistant featuring semantic memory retrieval, structured fact extraction, conversation summarization, multi-session chat management, and real-time web search integration.
 
-Built using Llama 3.3, LangChain, ChromaDB, Tavily Search, and Streamlit.
+Built using Llama 3.3, LangChain, pgvector, Tavily Search, Streamlit, and PostgreSQL.
 
 ---
 
@@ -60,7 +60,7 @@ The project focuses heavily on:
 # ✨ Features
 
 ## 🧠 Memory & Personalization
-- Persistent semantic memory using ChromaDB vector search
+- Persistent semantic memory using pgvector on PostgreSQL
 - Structured fact memory with automatic user profile extraction
 - Multi-session conversation management
 - Real-time web search using Tavily
@@ -87,7 +87,7 @@ The project focuses heavily on:
 - Create multiple chat sessions
 - Rename and delete conversations
 - Automatic chat title generation based on first user query
-- Persistent chat history using SQLite
+- Persistent chat history using PostgreSQL
 
 ---
 
@@ -153,13 +153,14 @@ Used for:
 
 ### 2. Long-Term Semantic Memory
 
-Powered by ChromaDB vector embeddings.
+Powered by pgvector on PostgreSQL.
 
 Workflow:
-1. User messages are converted into vector embeddings
-2. Embeddings are stored in ChromaDB
-3. Relevant memories are retrieved using semantic similarity search
-4. Retrieved context is injected into prompts dynamically
+1. User messages are split into chunks and converted into vector embeddings
+2. Embeddings are stored in PostgreSQL via pgvector
+3. Relevant memories are retrieved using L2 distance similarity search
+4. Semantic deduplication prevents redundant memory storage
+5. Retrieved context is injected into prompts dynamically
 
 Used For:
 * Recalling past discussions
@@ -194,7 +195,7 @@ This separation improves retrieval quality by distinguishing stable personal fac
 
 ### 4. Conversation Summarization
 
-Uses a running summary stored in SQLite to compress long conversations while preserving important context.
+Uses a running summary stored in PostgreSQL to compress long conversations while preserving important context.
 
 Features:
 - Automatic summarization after configurable conversation thresholds
@@ -205,7 +206,7 @@ Features:
 
 ---
 
-##  Response Generation Pipeline
+## Response Generation Pipeline
 
 ```text
 User Query
@@ -269,11 +270,11 @@ Summary Update
 | LLM                    | Llama 3.3 (llama-3.3-70b-versatile) |
 | Inference API          | Groq API                            |
 | Framework              | LangChain                           |
-| Vector Database        | ChromaDB                            |
-| Chat Storage           | PostgreSQL                          |
+| Vector Database        | pgvector (PostgreSQL)               |
+| Chat & Summary Storage | PostgreSQL (Neon)                   |
 | Web Search             | Tavily Search                       |
 | Frontend               | Streamlit                           |
-| Embeddings             | sentence-transformers               |
+| Embeddings             | sentence-transformers (all-MiniLM-L6-v2)   |
 | Environment Management | python-dotenv                       |
 
 ---
@@ -298,6 +299,9 @@ Summary Update
 - Persistent conversational memory
 - Tool-augmented LLM agents
 - Conversational UX design
+- Long-term memory architectures
+- Conversation summarization
+- Semantic deduplication
 
 ---
 
@@ -329,17 +333,18 @@ Key challenges solved:
 
 # 🚧 Future Improvements
 
-- PostgreSQL + pgvector migration
+- Model routing — fast model for utility tasks, full model for chat responses
+- Token optimization and context window management
 - Memory conflict resolution and fact updates (e.g., detecting when a user's location or occupation changes)
 - PDF upload and retrieval-augmented generation (RAG)
 - Hybrid memory ranking (recency + semantic relevance)
-- Automatic pruning / archiving of summarized chat history
+- Advanced context compression and memory ranking
 
 ---
 
 # 📌 Notes
 
-- Local ChromaDB and SQLite persistence may reset on Streamlit Cloud deployments
+- Chat history, summaries, and vector memory persist via PostgreSQL (Neon) across Streamlit Cloud deployments
 - Designed primarily as an AI engineering / retrieval systems portfolio project
 - Focused on retrieval quality, memory systems, and conversational architecture rather than only chatbot UI
 
