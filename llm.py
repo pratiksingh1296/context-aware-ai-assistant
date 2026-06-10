@@ -132,6 +132,18 @@ def get_llm():
 
 
 @st.cache_resource
+def get_fast_llm():
+
+    return ChatGroq(
+        api_key=groq_api_key,
+        model="llama-3.1-8b-instant",
+        temperature=0.1,
+        max_tokens=512,
+        timeout=30,
+        max_retries=3
+    )
+
+@st.cache_resource
 def get_agent_executor():
     """
     Caches the agent executor to optimize performance and resource usage across interactions
@@ -175,7 +187,7 @@ def generate_chat_title(first_message):
 
     Return only the title.
     """
-    llm = get_llm() # Retrieve the cached LLM instance for consistent performance
+    llm = get_fast_llm() # Retrieve the cached LLM instance for consistent performance
     response = llm.invoke(prompt)
     return response.content.strip()
 
@@ -211,7 +223,7 @@ def generate_updated_summary(previous_summary: str, recent_turns: list) -> str:
     to return a highly dense, chronologically accurate updated summary string.
     """
 
-    llm = get_llm()
+    llm = get_fast_llm()
 
     formatted_turns = "\n\n".join(
         f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"

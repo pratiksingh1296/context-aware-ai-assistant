@@ -1,4 +1,4 @@
-# 🧠 Context-Aware AI Assistant
+# 🧠 Context-Aware AI Assistant with Persistent Memory Architecture
 
 Built as an AI engineering portfolio project exploring retrieval-augmented generation (RAG), long-term memory architectures, and conversational agent design.
 
@@ -96,7 +96,6 @@ The project focuses heavily on:
 - Injects retrieved context into prompts dynamically
 - Prevents irrelevant memory pollution using retrieval filtering
 
-
 ---
 
 ## 🎨 Improved Conversational UX
@@ -131,6 +130,45 @@ context-aware-ai-assistant/
 └── .gitignore
 
 ```
+
+---
+
+# Recent Improvements
+
+## Intelligent Model Routing
+To reduce latency & inference costs, the assitant uses multiple LLMs based on task complexity.
+
+* Fast model for:
+  - Chat title generation
+  - Fact extraction
+  - Conversation summarization
+
+* Large model for:
+  - User-facing conversations
+  - Reasoning heavy responses
+  - Tool augmented agent execution
+
+This significantly improves responsiveness while maintaining response quality.
+
+## Memory Conflict Resolution
+
+Structured fact memory supports category-aware updates.
+
+For single-value categories such as:
+- Profile 
+- Location
+- Occupation
+
+New information automatically replaces outdated information.
+
+Example:
+User: "I live in Mumbai"
+→ Stores location = Mumbai
+
+User: "I moved to Bangalore"
+→ Updates location = Bangalore
+
+This prevents contradictory user facts from accumulating over time and improves retrieval quality.
 
 ---
 
@@ -175,21 +213,24 @@ Examples:
 
 ### 3. Structured Fact Memory
 
-Uses an LLM-powered extraction pipeline to identify stable user facts and preferences.
-Unlike conversational memory, structured facts are stored independently and semantically deduplicated, allowing the assistant to maintain stable user preferences and profile information across conversations.
+The system distinguishes between:
 
-Workflow:
-1. User messages are analyzed for long-term personal facts
-2. Facts are categorized (profile, location, interest, goal, occupation)
-3. Semantic deduplication prevents duplicate storage
-4. Stored facts are retrieved independently from conversational memory
+**Single-value facts**:
+* Name
+* Location
+* Occupation
 
-Examples:
-- The user's name is Pratik
-- The user lives in Navi Mumbai
-- The user loves football
+These categories are automatically updated whenever newer information is provided.
 
-This separation improves retrieval quality by distinguishing stable personal facts from general conversational context.
+**Multi-value facts**:
+* Goals
+* Interests
+* Skills
+* Projects
+
+These categories use semantic deduplication to prevent storing near-duplicate facts while allowing multiple valid entries.
+
+This hybrid strategy maintains both memory consistency and user history.
 
 ---
 
@@ -225,6 +266,7 @@ Generate Response
 ↓
 Update Memory Systems
 ```
+
 ---
 
 ## Retrieval Flow
@@ -326,19 +368,23 @@ Key challenges solved:
 - Preventing duplicate memory storage across sessions
 - Managing persistent chat history alongside vector memory
 - Building conversation summarization for long-running chats
-- Handling relative date normalization for temporal queries
-- Optimizing Streamlit performance using resource caching
+- Designing category-aware memory conflict resolution
+- Building efficient model routing across multiple LLMs
+- Reducing Streamlit rerun overhead through resource caching and dependency preloading
+- Maintaining retrieval quality while supporting persistent memory growth
 
 ---
 
 # 🚧 Future Improvements
 
-- Model routing — fast model for utility tasks, full model for chat responses
-- Token optimization and context window management
-- Memory conflict resolution and fact updates (e.g., detecting when a user's location or occupation changes)
 - PDF upload and retrieval-augmented generation (RAG)
 - Hybrid memory ranking (recency + semantic relevance)
-- Advanced context compression and memory ranking
+- Memory management dashboard
+- User-controlled memory editing and deletion
+- Advanced context compression
+- Memory importance scoring
+- Multi-user authentication
+- Long-term episodic memory clustering
 
 ---
 

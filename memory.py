@@ -11,15 +11,18 @@ import os
 # 3rd Party Imports
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
-from llm import get_llm
+from llm import get_llm, get_fast_llm
 from utils import debug_print
+import streamlit as st
 
 # Database file path
 load_dotenv()
 DATABASE_URL = os.getenv('DATABASE_URL')
 
 # Initialize embedding model 
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+@st.cache_resource
+def get_embedding_model():
+    return SentenceTransformer('all-MiniLM-L6-v2')
 
 
 # ==============================================================================
@@ -28,8 +31,33 @@ embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 def add_to_memory(user_id: str, text: str, session_id: str):
     """
-    Splits long conversational text blocks into logical atomic chunks,
-    generates vector embeddings automatically, and saves them into ChromaDB.
+    Stores conversational memories in the chat_memory table for future
+    semantic retrieval.
+
+    The function breaks incoming text into sentence-level memory chunks,
+    generates vector embeddings for each chunk, and persists unique
+    memories to the database.
+
+    Behavior:
+    - Splits text into atomic chunks using punctuation and line breaks.
+    - Ignores empty, very short, or low-information fragments.
+    - Skips question-like content to avoid storing transient queries
+    as long-term memory.
+    - Generates embeddings for each memory chunk.
+    - Performs semantic deduplication using vector similarity against
+    existing memories for the same user.
+    - Stores only memories that are sufficiently distinct from
+    previously saved memories.
+    - Associates each stored memory with the current user and session.
+
+    Args:
+        user_id: Unique identifier of the user.
+        text: Conversational text to be processed and stored.
+        session_id: Identifier of the current conversation session.
+
+    Returns:
+        None
+
     """
 
     # Split incoming text by punctuation marks (. ! ?) or line breaks to isolate sentences
@@ -53,7 +81,7 @@ def add_to_memory(user_id: str, text: str, session_id: str):
                 debug_print(f"ADDING MEMORY: {chunk}")
 
                 # 1. Generate embedding for chunk
-                embedding = embedding_model.encode(chunk).tolist()
+                embedding = get_embedding_model().encode(chunk).tolist()
 
                 # 2. Check for duplicates before inserting
                 c.execute('''
@@ -87,14 +115,41 @@ def add_to_memory(user_id: str, text: str, session_id: str):
                 count = c.fetchone()[0]
                 debug_print(f"MEMORIES FOR {user_id}: {count}")
 
-
+# Retrieve Memory
 def retrieve_memory(user_id: str, query: str, limit: int = 10, threshold: float = 1.2)-> list:
     """
-    Queries ChromaDB vector space using semantic search.
-    Filters out irrelevant noise using an L2 Distance similarity cap.
+    Retrieves relevant conversational memories for a user using
+    semantic vector search.
+
+    The function embeds the query, searches the chat_memory table
+    using PGVector similarity search, and returns only memories that
+    meet the configured relevance threshold.
+
+    Behavior:
+    - Generates an embedding for the incoming query.
+    - Performs nearest-neighbor vector search against the user's
+    stored memories.
+    - Retrieves the closest matching memory candidates ordered by
+    vector distance.
+    - Filters results using an L2 distance threshold to remove
+    semantically weak matches.
+    - Returns only memory contents that are considered relevant.
+    - Returns an empty list when no suitable memories are found.
+
+    Args:
+        user_id: Unique identifier of the user.
+        query: Text used to search for relevant memories.
+        limit: Maximum number of candidate memories to retrieve
+            before relevance filtering.
+        threshold: Maximum allowed vector distance for a memory
+            to be considered relevant.
+    Returns:
+        list[str]: Relevant memory contents ordered by semantic
+        similarity.
+
     """
     # Generate query embedding
-    query_embedding = embedding_model.encode(query).tolist()
+    query_embedding = get_embedding_model().encode(query).tolist()
 
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor() as c:
@@ -143,15 +198,31 @@ def retrieve_memory(user_id: str, query: str, limit: int = 10, threshold: float 
 
 def extract_and_store_facts(user_id: str, user_message: str, session_id: str):
     """
-    Uses the LLM to detect whether the user's message contains a personal fact
-    worth remembering. If a fact is found and is not already stored, saves it
-    to the dedicated facts collection in ChromaDB.
+    Extracts long-term user facts from a user message and stores them
+    in the user_facts table.
 
-    Only stores facts from user messages — not agent responses.
-    Skips storage if a semantically similar fact already exists (deduplication).
+    The function uses a lightweight LLM to identify stable personal
+    information that may be useful across future conversations.
+
+    Behaviour:
+    - Only stores facts from user messages (never agent responses)
+    - Supports extraction of multiple facts from a single message
+    - Stores facts with vector embeddings for semantic retrieval
+    - For single-value categories (profile, location, occupation), any existing value is replaced with the newly extracted fact
+    - For multi-value categories (goal, project, skill, interest), semantic deduplication is performed before storage to avoid
+    saving near-duplicate facts.
+    - Silently skips malformed LLM output or storage errors so the main chat flow is never interrupted.
+    
+    Args:
+        user_id: Unique identifier of the user.
+        user_message: Raw message sent by the user.
+        session_id: Identifier of the current conversation session.
+    Returns:
+        None
+        
     """
 
-    llm = get_llm()
+    llm = get_fast_llm()
 
     extraction_prompt = f"""
 
@@ -167,15 +238,19 @@ def extract_and_store_facts(user_id: str, user_message: str, session_id: str):
     - Location
     - Occupation
     - Long-term goals
+    - Ongoing projects
+    - Skills being learned or possessed
     - Hobbies and interests
     - Strong preferences (favourite foods, sports, technologies, etc.)
-
-
 
     CRITICAL RULES:
     - Always write the "fact" value as a full sentence in third person, starting with "The user..."
     - Never infer facts that are not explicitly stated
     - Only extract information directly present in the user message
+    - Extract every valid long-term fact present in the message, not just the first one.
+    - NEVER store negative statements such as "The user does not have a stated X" or "The user has not mentioned X"
+    - NEVER infer the absence of information as a fact
+
     - Do NOT store:
         - Temporary plans for the next few days
         - Current mood or emotions
@@ -183,7 +258,41 @@ def extract_and_store_facts(user_id: str, user_message: str, session_id: str):
         - One-time events
         - Small talk
 
-    Valid categories: profile | interest | location | goal | occupation
+    Valid categories: profile | interest | location | goal | occupation | project | skill
+
+    CATEGORY GUIDELINES:
+
+    IMPORTANT DISTINCTIONS:
+
+    - A goal is something the user wants to achieve in the future.
+    - A project is something the user is actively building, developing, researching, creating or working on.
+    - A skill is something the user knows or is actively learning.
+
+    - profile: 
+        Stable personal identity information.
+        Examples: name, age, education level, nationality.
+
+    - location:
+        Where the user currently lives or is based.
+        Examples: "I live in Mumbai", "I moved to Bangalore".
+    
+    - occupation:
+        The user's current profession, job, or role.
+        Examples: "I work as a Data Analyst", "I am a Software Engineer".
+
+    - interest:
+        Long-term hobbies, passions, preferences, or things the user consistently enjoys.
+        Examples: football, chess, reading, favourite foods, favourite technologies.
+    
+    - goal: 
+        Something the user wants to achieve in the future.
+        Example: "I want to become a Data Scientist", "I want to crack ML interviews".
+
+    - project: Something the user is actively building, developing, or working on.
+        Example: "I am building a chatbot", "I am developing a forecasting model".
+
+    - skill: Knowledge, technologies, subjects, or capabilities the user possesses or is actively learning.
+        Example: "I know Python", "I am learning machine learning", "I am studying SQL".
 
     Examples:
     - "I'm Pratik by the way"         -> {{"fact": "The user's name is Pratik", "category": "profile"}}
@@ -191,20 +300,46 @@ def extract_and_store_facts(user_id: str, user_message: str, session_id: str):
     - "I live in Navi Mumbai"         -> {{"fact": "The user lives in Navi Mumbai", "category": "location"}}
     - "I am preparing for DS interviews" -> {{"fact": "The user is preparing for Data Science interviews", "category": "goal"}}
     - "I work as a data analyst"      -> {{"fact": "The user works as a Data Analyst", "category": "occupation"}}
+    - "I am building a chatbot"      -> {{"fact": "The user is building a chatbot", "category": "project"}}
+    - "I am developing an AI assistant" -> {{"fact": "The user is developing an AI assistant", "category": "project"}}
+    - "I know Python and SQL"        -> {{"fact": "The user knows Python and SQL", "category": "skill"}}
+    - "I am learning machine learning" -> {{"fact": "The user is learning machine learning", "category": "skill"}}
+
+    MULTI-FACT EXAMPLES:
+
+    - "I live in Mumbai and work as a Data Analyst"
+    ->
+    {{
+    "facts": [
+        {{"fact": "The user lives in Mumbai", "category": "location"}},
+        {{"fact": "The user works as a Data Analyst", "category": "occupation"}}
+        ]
+    }}
+
+    - "I am learning machine learning and building a chatbot"
+    ->
+    {{
+    "facts": [
+        {{"fact": "The user is learning machine learning", "category": "skill"}},
+        {{"fact": "The user is building a chatbot", "category": "project"}}
+        ]
+    }}
 
     User message: "{user_message}"
 
     If one or more long-term personal facts are present, respond with ONLY this JSON structure:
     {{
     "facts": [
-        {{"fact": "The user...", "category": "profile/interest/location/goal/occupation"}},
-        {{"fact": "The user...", "category": "profile/interest/location/goal/occupation"}}
+        {{"fact": "The user...", "category": "<one valid category>"}},
+        {{"fact": "The user...", "category": "<one valid category>"}}
         ]
     }}
 
     If no long-term personal fact is found, respond with ONLY:
     {{"facts": []}}
 
+    If no personal fact is clearly present, return {{"facts": []}} immediately — do not attempt to fill in blanks
+    
     Do not include markdown, code block wrappers, or any explanation. Return pure JSON only.
 
 """
@@ -230,11 +365,12 @@ def extract_and_store_facts(user_id: str, user_message: str, session_id: str):
 
     stored_count = 0
 
+    SINGLE_VALUE_CATEGORIES = {"location", "occupation", "profile"}
 
     # Opening connection 
     with psycopg2.connect(DATABASE_URL) as conn:
                 with conn.cursor() as c:
-                    
+        
                     # Process each extracted fact independently
                     for item in extracted_facts:
 
@@ -247,48 +383,63 @@ def extract_and_store_facts(user_id: str, user_message: str, session_id: str):
                         debug_print(f"EXTRACTED FACT: {fact_text} | CATEGORY: {category}")
 
                         # Embedding the facts
-                        fact_embedding = embedding_model.encode(fact_text).tolist()
+                        fact_embedding = get_embedding_model().encode(fact_text).tolist()
 
+                        if category in SINGLE_VALUE_CATEGORIES:
+                            # Delete existing fact in this category for this user
+                            try:
+                                c.execute('''
+                                    DELETE FROM user_facts
+                                    WHERE user_id = %s AND category = %s
+                                ''', (user_id,category))
 
-                        # Handling duplicates, deduplicating against existing facts
-                        try:
-                            c.execute('''
-                                SELECT content, embedding <-> %s::vector AS distance
-                                FROM user_facts
-                                WHERE user_id = %s
-                                ORDER BY distance
-                                LIMIT 3
-                            ''', (fact_embedding, user_id))
-            
-                            results = c.fetchall()
+                                # Then insert new one unconditionally
+                                c.execute('''
+                                    INSERT INTO user_facts (user_id, session_id, content, category, embedding, timestamp)
+                                    VALUES (%s, %s, %s, %s, %s, %s)
+                                    ''', (user_id, session_id, fact_text, category, fact_embedding, time.time()))
 
-                            if results:
-                                best_match = results[0] # closest match
-                                best_content, best_distance = best_match
-                
-                                # If a very similar fact already exists, skip storage
-                                if best_distance < 0.3:
-                                    debug_print(f"DUPLICATE FACT SKIPPED: {fact_text} (distance: {best_distance:.3f})")
-                                    continue
-
-                        except Exception as e:
-                            debug_print("DEDUPLICATION CHECK ERROR:", e) 
+                                stored_count += 1
+                                debug_print(f"FACT UPDATED (single-value): {fact_text}")
                             
-                        # If dedup check fails, still attempt to store rather than silently drop
+                            except Exception as e:
+                                debug_print("SINGLE VALUE FACT UPDATE ERROR:", e)
 
-                        # Store new fact
-                        try:
-                            c.execute('''   
-                                INSERT INTO user_facts (user_id, session_id, content, category, embedding, timestamp)
-                                VALUES(%s,%s,%s,%s,%s,%s)
-                            ''', (user_id, session_id, fact_text, category, fact_embedding,time.time()))
+                        else:
+                            # Multi-value categories — existing dedup logic
+                            try:
+                                c.execute('''
+                                        SELECT content, embedding <-> %s::vector AS distance
+                                        FROM user_facts
+                                        WHERE user_id = %s AND category = %s
+                                        ORDER BY distance
+                                        LIMIT 3
+                                    ''', (fact_embedding, user_id, category))
+                                
+                                results = c.fetchall()
 
-                            stored_count += 1
-                            debug_print(f"FACT STORED: {fact_text}")
+                                if results:
+                                    best_content, best_distance = results[0]
+                                    if best_distance < 0.3:
+                                        debug_print(f"DUPLICATE FACT SKIPPED: {fact_text} (distance: {best_distance:.3f})")
+                                        continue
 
-            
-                        except Exception as e:
-                            debug_print("FACT STORAGE ERROR:", e)
+                            except Exception as e:
+                                debug_print("DEDUPLICATION CHECK ERROR:", e)
+
+                            # Insert new fact
+                            try:
+                                c.execute('''
+                                        INSERT INTO user_facts (user_id, session_id, content, category, embedding, timestamp)
+                                        VALUES (%s, %s, %s, %s, %s, %s)
+                                    ''', (user_id, session_id, fact_text, category, fact_embedding, time.time()))
+                                
+                                stored_count += 1
+                                debug_print(f"FACT STORED: {fact_text}")
+                            
+                            except Exception as e:
+                                debug_print("FACT STORAGE ERROR:", e)
+                            
 
     debug_print(f"STORED {stored_count} NEW FACT(S)")
 
@@ -299,9 +450,30 @@ def extract_and_store_facts(user_id: str, user_message: str, session_id: str):
 
 def retrieve_facts(user_id: str, limit: int = 25) -> list:
     """
-    Retrieves all stored facts for a given user from the facts collection.
-    No semantic filtering — all known facts are always returned for prompt injection.
-    Returns a list of fact strings, or an empty list if none exist.
+    Retrieves stored user facts from the user_facts table for use
+    as persistent profile memory.
+
+    Unlike conversational memory retrieval, this function does not
+    perform semantic search or relevance filtering. All stored facts
+    for the user are considered important profile information and are
+    returned directly.
+
+    Behavior:
+    - Retrieves facts associated with the specified user.
+    - Returns facts as plain text strings.
+    - Applies a configurable maximum result limit.
+    - Returns an empty list if no facts exist.
+    - Gracefully handles database errors without interrupting the
+    main chat flow.
+
+    Args:
+        user_id: Unique identifier of the user.
+        limit: Maximum number of facts to retrieve.
+
+    Returns:
+        list[str]: Stored user facts suitable for prompt injection
+        and long-term personalization.
+        
     """
     try:
         with psycopg2.connect(DATABASE_URL) as conn:
@@ -379,8 +551,16 @@ if __name__ == "__main__":
     print("Stored facts:", facts)
 
     print("\n--- Testing memory deduplication ---")
-    add_to_memory("user123", "I love football", TEST_SESSION)
-    add_to_memory("user123", "I enjoy football", TEST_SESSION)
-    add_to_memory("user123", "I enjoy playing football every weekend", TEST_SESSION)
+    add_to_memory(TEST_USER, "I love football", TEST_SESSION)
+    add_to_memory(TEST_USER, "I enjoy football", TEST_SESSION)
+    add_to_memory(TEST_USER, "I enjoy playing football every weekend", TEST_SESSION)
     
+    print("\n--- Testing memory conflict resolution ---")
+    extract_and_store_facts(TEST_USER, "I live in Navi Mumbai", TEST_SESSION)
+    print("After first location:")
+    print(retrieve_facts(TEST_USER))
+
+    extract_and_store_facts(TEST_USER, "I moved to Bangalore", TEST_SESSION)
+    print("After location update:")
+    print(retrieve_facts(TEST_USER))
 

@@ -11,8 +11,8 @@ except ModuleNotFoundError:
 # ==================================================
 
 import streamlit as st 
-from llm import generate_response, generate_chat_title, generate_updated_summary
-from memory import add_to_memory, retrieve_memory, extract_and_store_facts, retrieve_facts
+from llm import generate_response, generate_chat_title, generate_updated_summary, get_agent_executor, get_fast_llm, get_llm
+from memory import add_to_memory, retrieve_memory, extract_and_store_facts, retrieve_facts, get_embedding_model
 from storage import init_db, save_sessions, load_sessions, save_summary, load_summary, count_user_messages
 from utils import debug_print
 
@@ -32,9 +32,18 @@ init_db()
 
 
 # ==================================================
-# User Authentication / User Session Setup
+# Dependency Preloading
 # ==================================================
 
+get_embedding_model()
+get_llm()
+get_fast_llm()
+get_agent_executor()
+
+
+# ==================================================
+# User Authentication / User Session Setup
+# ==================================================
 
 # ==================================================
 # User Profile
@@ -101,10 +110,11 @@ if not st.session_state.user_id:
 
 USER_ID = st.session_state.user_id
 
-existing = retrieve_memory(USER_ID, "What is my name?", limit=5)
-
-if not any(USER_ID.lower() in str(mem).lower() for mem in existing):
-    store_user_profile(USER_ID)
+if "name_checked" not in st.session_state:
+    existing = retrieve_memory(USER_ID, "What is my name?", limit=5)
+    if not any(USER_ID.lower() in str(mem).lower() for mem in existing):
+        store_user_profile(USER_ID)
+    st.session_state.name_checked = True
 
 
 # ==================================================
@@ -209,7 +219,7 @@ with st.sidebar:
 
 st.title("🤖 Assistant Chatbot")
 st.markdown(f"**Current Chat:** `{st.session_state.current_session}`")
-st.caption("Powered by Llama 3.3 + ChromaDB persistent memory")
+st.caption("Powered by Llama 3.3 · pgvector · LangChain")
 
 
 # ==================================================
